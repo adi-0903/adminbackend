@@ -1,0 +1,123 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Django
+*.log
+*.pot
+*.pyc
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+local_settings.py
+
+# Environment
+.env
+.env.*
+.venv
+env/
+venv/
+ENV/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Logs
+logs/
+*.log
+
+# Documentation
+Docs/
+APITest/
+nginx_setup.txt
+stepup.md
+
+# Database
+*.sqlite3
+*.db
+rzp.csv
+
+# Server Configs
+nginx/
+gunicorn_configs/
+
+# Celery
+celerybeat-schedule
+celerybeat-schedule.bak
+celerybeat-schedule.dat
+celerybeat-schedule.dir
+celerybeat.pid
+
+# Project specific
+**/migrations/*.py
+!**/migrations/__init__.py
+media/
+static/
+!static/.gitkeep
+
+# Cache
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+.coverage.*
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# Backup files
+*.bak
+*.swp
+*.swo
+*~
+
+# Local development settings
+local_settings.py
+docker-compose.override.yml
+
+# Secrets
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+
+.env.prod
+.env
+rzp.csv
+.cursorrules
+
+test.py
+.env.prod
+
+db_migrate.sh
+migrate.py

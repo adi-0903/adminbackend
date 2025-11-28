@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Customer, Collection, MarketMilkPrice, DairyInformation, RawCollection
+from .models import Customer, Collection, MarketMilkPrice, DairyInformation, RawCollection, ProRataRateChart, FatStepUpRate, SnfStepDownRate
 from .youtube_channel_models import YouTubeChannelLink
 
 @admin.register(MarketMilkPrice)
@@ -55,6 +55,24 @@ class DairyInformationAdmin(admin.ModelAdmin):
         if not change:  # If creating new object
             obj.author = request.user
         super().save_model(request, obj, form, change)
+
+
+class FatStepUpRateInline(admin.TabularInline):
+    model = FatStepUpRate
+    extra = 1
+
+
+class SnfStepDownRateInline(admin.TabularInline):
+    model = SnfStepDownRate
+    extra = 1
+
+
+@admin.register(ProRataRateChart)
+class ProRataRateChartAdmin(admin.ModelAdmin):
+    list_display = ('id', 'author', 'is_active', 'created_at')
+    list_filter = ('is_active', 'author')
+    ordering = ('-created_at',)
+    inlines = [FatStepUpRateInline, SnfStepDownRateInline]
 
 @admin.register(RawCollection)
 class RawCollectionAdmin(admin.ModelAdmin):

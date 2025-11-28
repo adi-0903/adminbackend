@@ -26,7 +26,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.http import condition
 from typing import Any, Dict, List, Optional, Union, Type, Tuple
 from rest_framework.serializers import Serializer
-from .models import Collection, Customer, MarketMilkPrice, DairyInformation, RawCollection
+from .models import Collection, Customer, MarketMilkPrice, DairyInformation, RawCollection, ProRataRateChart
 from .serializers import (
     CollectionListSerializer,
     CollectionDetailSerializer,
@@ -35,7 +35,8 @@ from .serializers import (
     DairyInformationSerializer,
     RawCollectionListSerializer,
     RawCollectionDetailSerializer,
-    RawCollectionMilkRateSerializer
+    RawCollectionMilkRateSerializer,
+    ProRataRateChartSerializer
 )
 from .filters import CollectionFilter, RawCollectionFilter
 from wallet.models import Wallet
@@ -199,6 +200,51 @@ class DairyInformationViewSet(BaseViewSet):
                 {
                     'error': str(e),
                     'detail': 'Failed to update dairy information. Please check your input.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+class ProRataRateChartViewSet(BaseViewSet):
+    queryset = ProRataRateChart.objects.all()
+    serializer_class = ProRataRateChartSerializer
+    
+    def list(self, request: HttpRequest, *args: Any, **kwargs: Any) -> Response:
+        # Get only the most recent active chart
+        chart = ProRataRateChart.objects.filter(
+            author=request.user,
+            is_active=True
+        ).order_by('-created_at').first()
+
+        if chart:
+            serializer = self.get_serializer(chart)
+            return Response(serializer.data)
+        
+        # If no chart exists, return empty or 404? 
+        # Returning 404 is consistent with other singleton views here
+        return Response(
+            {
+                'detail': 'No pro rata rate chart found.'
+            },
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    def create(self, request: HttpRequest, *args: Any, **kwargs: Any) -> Response:
+        try:
+            # Soft delete any existing active chart
+            existing_chart = ProRataRateChart.objects.filter(
+                author=request.user,
+                is_active=True
+            ).first()
+
+            if existing_chart:
+                existing_chart.soft_delete()
+
+            return super().create(request, *args, **kwargs)
+        except Exception as e:
+            return Response(
+                {
+                    'error': str(e),
+                    'detail': 'Failed to create pro rata rate chart. Please check your input.'
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )

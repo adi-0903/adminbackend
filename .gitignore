@@ -75,8 +75,8 @@ celerybeat-schedule.dir
 celerybeat.pid
 
 # Project specific
-**/migrations/*.py
-!**/migrations/__init__.py
+# **/migrations/*.py
+# !**/migrations/__init__.py
 media/
 static/
 !static/.gitkeep

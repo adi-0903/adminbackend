@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from django.db import models
+from django.db.models import QuerySet
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 

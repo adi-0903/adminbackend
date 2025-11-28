@@ -13,6 +13,30 @@ import dj_database_url
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+def filter_sensitive_data(event):
+    """Redact common sensitive fields from Sentry events before sending."""
+    sensitive_keys = {"password", "secret", "token", "authorization", "api_key"}
+
+    def scrub(value):
+        if isinstance(value, dict):
+            return {
+                k: ("[Filtered]" if any(sk in k.lower() for sk in sensitive_keys) else scrub(v))
+                for k, v in value.items()
+            }
+        if isinstance(value, list):
+            return [scrub(item) for item in value]
+        return value
+
+    if "request" in event:
+        request = event["request"]
+        if "headers" in request:
+            request["headers"] = scrub(request["headers"])
+        if "data" in request:
+            request["data"] = scrub(request["data"])
+    if "extra" in event:
+        event["extra"] = scrub(event["extra"])
+    return event
+
 # Environment settings
 ENVIRONMENT = config('ENVIRONMENT', default='development')
 IS_DEVELOPMENT = ENVIRONMENT == 'development'
@@ -22,22 +46,22 @@ IS_PRODUCTION = ENVIRONMENT == 'production'
 TIME_ZONE = config('TIME_ZONE', default='Asia/Kolkata')
 USE_TZ = True
 
-# Sentry Configuration with Performance Monitoring
-SENTRY_DSN = config('SENTRY_DSN', default=None)
-if SENTRY_DSN:
-    sentry_sdk.init(
-        dsn=SENTRY_DSN,
-        integrations=[
-            DjangoIntegration(),
-            RedisIntegration(),
-            CeleryIntegration(),
-        ],
-        traces_sample_rate=0.1,
-        profiles_sample_rate=0.1,
-        environment=ENVIRONMENT,
-        send_default_pii=True,
-        before_send=lambda event, hint: filter_sensitive_data(event),
-    )
+ # Sentry Configuration with Performance Monitoring (disabled)
+ # SENTRY_DSN = config('SENTRY_DSN', default=None)
+ # if SENTRY_DSN:
+ #     sentry_sdk.init(
+ #         dsn=SENTRY_DSN,
+ #         integrations=[
+ #             DjangoIntegration(),
+ #             RedisIntegration(),
+ #             CeleryIntegration(),
+ #         ],
+ #         traces_sample_rate=0.1,
+ #         profiles_sample_rate=0.1,
+ #         environment=ENVIRONMENT,
+ #         send_default_pii=True,
+ #         before_send=lambda event, hint: filter_sensitive_data(event),
+ #     )
 
 # Prometheus Metrics
 PROMETHEUS_METRICS = {

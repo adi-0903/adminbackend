@@ -213,11 +213,13 @@ class ProRataRateChartSerializer(BaseModelSerializer):
         
         chart = super().create(validated_data)
 
+        request_user = self.context['request'].user
+
         for rate_data in fat_rates_data:
-            FatStepUpRate.objects.create(chart=chart, **rate_data)
+            FatStepUpRate.objects.create(chart=chart, author=request_user, **rate_data)
         
         for rate_data in snf_rates_data:
-            SnfStepDownRate.objects.create(chart=chart, **rate_data)
+            SnfStepDownRate.objects.create(chart=chart, author=request_user, **rate_data)
             
         return chart
 
@@ -235,6 +237,8 @@ class ProRataRateChartSerializer(BaseModelSerializer):
             # Delete rates not in the new list
             instance.fat_step_up_rates.exclude(id__in=existing_ids).delete()
             
+            request_user = self.context['request'].user
+
             for rate_data in fat_rates_data:
                 rate_id = rate_data.get('id')
                 if rate_id:
@@ -244,7 +248,7 @@ class ProRataRateChartSerializer(BaseModelSerializer):
                         rate_obj.rate = rate_data.get('rate', rate_obj.rate)
                         rate_obj.save()
                 else:
-                    FatStepUpRate.objects.create(chart=instance, **rate_data)
+                    FatStepUpRate.objects.create(chart=instance, author=request_user, **rate_data)
 
         # Handle SNF Step Down Rates
         if snf_rates_data is not None:
@@ -262,7 +266,7 @@ class ProRataRateChartSerializer(BaseModelSerializer):
                         rate_obj.rate = rate_data.get('rate', rate_obj.rate)
                         rate_obj.save()
                 else:
-                    SnfStepDownRate.objects.create(chart=instance, **rate_data)
+                    SnfStepDownRate.objects.create(chart=instance, author=request_user, **rate_data)
 
         return instance 
 

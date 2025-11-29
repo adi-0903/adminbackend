@@ -40,7 +40,10 @@ class MarketMilkPrice(BaseModel):
     def save(self, *args: Any, **kwargs: Any) -> None:
         # Deactivate all other active records for this author
         if self.is_active:
-            MarketMilkPrice.objects.filter(author=self.author, is_active=True).update(is_active=False)
+            qs = MarketMilkPrice.objects.filter(author=self.author, is_active=True)
+            if self.pk:
+                qs = qs.exclude(pk=self.pk)
+            qs.update(is_active=False)
         super().save(*args, **kwargs)
 
     class Meta:
@@ -257,9 +260,9 @@ class DairyInformation(BaseModel):
         ('fat_clr', 'Fat + CLR')
     ]
 
-    BASE_SNF_CHOICES: List[Tuple[float, float]] = [
-        (8.5, 8.5),
-        (9.0, 9.0)
+    BASE_SNF_CHOICES: List[Tuple[Decimal, str]] = [
+        (Decimal('8.5'), '8.5'),
+        (Decimal('9.0'), '9.0')
     ]
 
     FAT_SNF_RATIO_CHOICES: List[Tuple[str, str]] = [
@@ -267,17 +270,29 @@ class DairyInformation(BaseModel):
         ('52/48', '52/48')
     ]
 
-    CLR_CONVERSION_FACTOR: List[Tuple[float, float]] = [
-        (0.14, 0.14),
-        (0.50, 0.50)
+    CLR_CONVERSION_FACTOR: List[Tuple[Decimal, str]] = [
+        (Decimal('0.14'), '0.14'),
+        (Decimal('0.50'), '0.50')
     ]
 
     dairy_name: models.CharField = models.CharField(max_length=255, db_index=True)
     dairy_address: models.TextField = models.TextField(blank=True, null=True)
     rate_type: models.CharField = models.CharField(max_length=20, choices=RATE_TYPE_CHOICES,blank=True, null=True, db_index=True)
-    base_snf: models.DecimalField = models.DecimalField(max_digits=4, decimal_places=3, default=9.0, choices=BASE_SNF_CHOICES, db_index=True)
+    base_snf: models.DecimalField = models.DecimalField(
+        max_digits=4,
+        decimal_places=3,
+        default=Decimal('9.0'),
+        choices=BASE_SNF_CHOICES,
+        db_index=True
+    )
     fat_snf_ratio: models.CharField = models.CharField(max_length=10, choices=FAT_SNF_RATIO_CHOICES, default='60/40', db_index=True)
-    clr_conversion_factor: models.DecimalField = models.DecimalField(max_digits=4, decimal_places=3, default=0.14, choices=CLR_CONVERSION_FACTOR, db_index=True)
+    clr_conversion_factor: models.DecimalField = models.DecimalField(
+        max_digits=4,
+        decimal_places=3,
+        default=Decimal('0.14'),
+        choices=CLR_CONVERSION_FACTOR,
+        db_index=True
+    )
 
 
     def __str__(self) -> str:
@@ -286,7 +301,10 @@ class DairyInformation(BaseModel):
     def save(self, *args: Any, **kwargs: Any) -> None:
         # Deactivate all other active records for this author
         if self.is_active:
-            DairyInformation.objects.filter(author=self.author, is_active=True).update(is_active=False)
+            qs = DairyInformation.objects.filter(author=self.author, is_active=True)
+            if self.pk:
+                qs = qs.exclude(pk=self.pk)
+            qs.update(is_active=False)
         super().save(*args, **kwargs)
 
     class Meta:

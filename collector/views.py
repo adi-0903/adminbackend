@@ -107,10 +107,8 @@ class MarketMilkPriceViewSet(BaseViewSet):
             serializer = self.get_serializer(milk_price)
             return Response(serializer.data)
         return Response(
-            {
-                'detail': 'No milk price found.'
-            },
-            status=status.HTTP_404_NOT_FOUND
+            None,
+            status=status.HTTP_200_OK
         )
 
     def create(self, request: HttpRequest, *args: Any, **kwargs: Any) -> Response:
@@ -165,10 +163,9 @@ class DairyInformationViewSet(BaseViewSet):
             serializer = self.get_serializer(dairy_info)
             return Response(serializer.data)
         return Response(
-            {
-                'detail': 'No dairy information found.'
-            },
-            status=status.HTTP_404_NOT_FOUND
+            
+            None,
+            status=status.HTTP_200_OK
         )
 
     def create(self, request: HttpRequest, *args: Any, **kwargs: Any) -> Response:

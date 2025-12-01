@@ -27,7 +27,7 @@ var/
 db.sqlite3
 db.sqlite3-journal
 media/
-# staticfiles/
+staticfiles/
 local_settings.py
 
 # Environment
@@ -75,11 +75,11 @@ celerybeat-schedule.dir
 celerybeat.pid
 
 # Project specific
-# **/migrations/*.py
-# !**/migrations/__init__.py
+**/migrations/*.py
+!**/migrations/__init__.py
 media/
-# static/
-# !static/.gitkeep
+static/
+!static/.gitkeep
 
 # Cache
 .pytest_cache/

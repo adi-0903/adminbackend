@@ -40,10 +40,7 @@ class MarketMilkPrice(BaseModel):
     def save(self, *args: Any, **kwargs: Any) -> None:
         # Deactivate all other active records for this author
         if self.is_active:
-            qs = MarketMilkPrice.objects.filter(author=self.author, is_active=True)
-            if self.pk:
-                qs = qs.exclude(pk=self.pk)
-            qs.update(is_active=False)
+            MarketMilkPrice.objects.filter(author=self.author, is_active=True).update(is_active=False)
         super().save(*args, **kwargs)
 
     class Meta:
@@ -253,47 +250,14 @@ class Customer(BaseModel):
 
 class DairyInformation(BaseModel):
     RATE_TYPE_CHOICES: List[Tuple[str, str]] = [
-        ('kg_only', 'Kg Only'),
-        ('liters_only', 'Liters Only'),
         ('fat_only', 'Fat Only'),
         ('fat_snf', 'Fat + SNF'),
         ('fat_clr', 'Fat + CLR')
     ]
 
-    BASE_SNF_CHOICES: List[Tuple[Decimal, str]] = [
-        (Decimal('8.5'), '8.5'),
-        (Decimal('9.0'), '9.0')
-    ]
-
-    FAT_SNF_RATIO_CHOICES: List[Tuple[str, str]] = [
-        ('60/40', '60/40'),
-        ('52/48', '52/48')
-    ]
-
-    CLR_CONVERSION_FACTOR: List[Tuple[Decimal, str]] = [
-        (Decimal('0.14'), '0.14'),
-        (Decimal('0.50'), '0.50')
-    ]
-
     dairy_name: models.CharField = models.CharField(max_length=255, db_index=True)
-    dairy_address: models.TextField = models.TextField(blank=True, null=True)
-    rate_type: models.CharField = models.CharField(max_length=20, choices=RATE_TYPE_CHOICES,blank=True, null=True, db_index=True)
-    base_snf: models.DecimalField = models.DecimalField(
-        max_digits=4,
-        decimal_places=3,
-        default=Decimal('9.0'),
-        choices=BASE_SNF_CHOICES,
-        db_index=True
-    )
-    fat_snf_ratio: models.CharField = models.CharField(max_length=10, choices=FAT_SNF_RATIO_CHOICES, default='60/40', db_index=True)
-    clr_conversion_factor: models.DecimalField = models.DecimalField(
-        max_digits=4,
-        decimal_places=3,
-        default=Decimal('0.14'),
-        choices=CLR_CONVERSION_FACTOR,
-        db_index=True
-    )
-
+    dairy_address: models.TextField = models.TextField(blank=True)
+    rate_type: models.CharField = models.CharField(max_length=20, choices=RATE_TYPE_CHOICES, db_index=True)
 
     def __str__(self) -> str:
         return self.dairy_name
@@ -301,10 +265,7 @@ class DairyInformation(BaseModel):
     def save(self, *args: Any, **kwargs: Any) -> None:
         # Deactivate all other active records for this author
         if self.is_active:
-            qs = DairyInformation.objects.filter(author=self.author, is_active=True)
-            if self.pk:
-                qs = qs.exclude(pk=self.pk)
-            qs.update(is_active=False)
+            DairyInformation.objects.filter(author=self.author, is_active=True).update(is_active=False)
         super().save(*args, **kwargs)
 
     class Meta:
@@ -312,61 +273,9 @@ class DairyInformation(BaseModel):
         verbose_name = 'Dairy Information'
         verbose_name_plural = 'Dairy Information'
         indexes = [
-            models.Index(fields=['dairy_name', 'rate_type', 'base_snf', 'fat_snf_ratio', 'clr_conversion_factor']),
+            models.Index(fields=['dairy_name', 'rate_type']),
             models.Index(fields=['author', 'is_active', 'created_at'])
         ]
-
-
-
-class ProRataRateChart(BaseModel):
-    
-    def __str__(self) -> str:
-        return f"Pro Rata Rate Chart ({self.created_at.date()})"
-
-    def save(self, *args: Any, **kwargs: Any) -> None:
-        # Deactivate all other active records for this author
-        if self.is_active:
-            ProRataRateChart.objects.filter(author=self.author, is_active=True).update(is_active=False)
-        super().save(*args, **kwargs)
-
-    class Meta:
-        verbose_name = 'Pro Rata Rate Chart'
-        verbose_name_plural = 'Pro Rata Rate Charts'
-        indexes = [
-            models.Index(fields=['author', 'is_active'])
-        ]
-
-class FatStepUpRate(BaseModel):
-    chart: models.ForeignKey = models.ForeignKey(ProRataRateChart, on_delete=models.CASCADE, related_name='fat_step_up_rates', db_index=True)
-    step: models.DecimalField = models.DecimalField(max_digits=5, decimal_places=2)
-    rate: models.DecimalField = models.DecimalField(max_digits=8, decimal_places=3)
-
-    def __str__(self) -> str:
-        return f"Fat Step Up - {self.step}"
-
-    class Meta:
-        verbose_name = 'Fat Step Up Rate'
-        verbose_name_plural = 'Fat Step Up Rates'
-        indexes = [
-            models.Index(fields=['chart', 'step']),
-        ]
-        ordering = ['chart', 'step']
-
-class SnfStepDownRate(BaseModel):
-    chart: models.ForeignKey = models.ForeignKey(ProRataRateChart, on_delete=models.CASCADE, related_name='snf_step_down_rates', db_index=True)
-    step: models.DecimalField = models.DecimalField(max_digits=5, decimal_places=2)
-    rate: models.DecimalField = models.DecimalField(max_digits=8, decimal_places=3)
-
-    def __str__(self) -> str:
-        return f"SNF Step Down - {self.step}"
-
-    class Meta:
-        verbose_name = 'SNF Step Down Rate'
-        verbose_name_plural = 'SNF Step Down Rates'
-        indexes = [
-            models.Index(fields=['chart', 'step']),
-        ]
-        ordering = ['chart', 'step']
 
 #------------------- Raw collection model without Milk rate -------------------
 class RawCollection(BaseModel):

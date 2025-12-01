@@ -564,7 +564,6 @@ class ProRataReportGenerator:
             # Add AM/PM based on collection_time
             time_suffix = "AM" if collection.collection_time == "morning" else "PM"
             # Modified row data - removed fat_rate, snf_rate, milk_rate
-            rate = (collection.amount)/(collection.kg)
             row = [
                 f"{collection.collection_date.strftime('%d/%m/%Y')} {time_suffix}",
                 f"{collection.kg:.2f}",
@@ -573,8 +572,8 @@ class ProRataReportGenerator:
                 f"{collection.snf_percentage:.2f}",
                 f"{collection.fat_kg:.3f}",
                 f"{collection.snf_kg:.3f}",
-                f"{collection.milk_rate:.2f}",
-                f"{rate:.2f}",
+                "",  # Empty B Rate column
+                f"{collection.milk_rate:.2f}",  # Add milk rate column
                 f"{collection.amount:.2f}"
             ]
             data.append(row)

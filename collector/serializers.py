@@ -146,20 +146,22 @@ class CollectionDetailSerializer(BaseModelSerializer):
 class DairyInformationSerializer(BaseModelSerializer):
     class Meta(BaseModelSerializer.Meta):
         model = DairyInformation
-        fields = ['id', 'dairy_name', 'dairy_address', 'rate_type', 'base_snf', 'fat_snf_ratio', 'clr_conversion_factor', 'is_active', 'created_at', 'updated_at']
+        fields = ['id', 'dairy_name', 'dairy_address', 'rate_type', 'is_active', 'created_at', 'updated_at']
 
     def validate(self, data: Dict[str, Any]) -> Dict[str, Any]:
         # Validate required fields
         if not data.get('dairy_name'):
             raise serializers.ValidationError({"dairy_name": "Dairy name is required"})
         
-        # Validate rate_type choices if provided (it's optional now)
-        if data.get('rate_type'):
-            valid_rate_types = [choice[0] for choice in DairyInformation.RATE_TYPE_CHOICES]
-            if data['rate_type'] not in valid_rate_types:
-                raise serializers.ValidationError({
-                    "rate_type": f"Invalid rate type. Must be one of: {', '.join(valid_rate_types)}"
-                })
+        if not data.get('rate_type'):
+            raise serializers.ValidationError({"rate_type": "Rate type is required"})
+            
+        # Validate rate_type choices
+        valid_rate_types = [choice[0] for choice in DairyInformation.RATE_TYPE_CHOICES]
+        if data.get('rate_type') and data['rate_type'] not in valid_rate_types:
+            raise serializers.ValidationError({
+                "rate_type": f"Invalid rate type. Must be one of: {', '.join(valid_rate_types)}"
+            })
         
         return data
 
@@ -185,90 +187,6 @@ class DairyInformationSerializer(BaseModelSerializer):
         if value:
             return value.strip()
         return value 
-
-from .models import ProRataRateChart, FatStepUpRate, SnfStepDownRate
-
-class FatStepUpRateSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = FatStepUpRate
-        fields = ['id', 'step', 'rate']
-
-class SnfStepDownRateSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = SnfStepDownRate
-        fields = ['id', 'step', 'rate']
-
-class ProRataRateChartSerializer(BaseModelSerializer):
-    fat_step_up_rates = FatStepUpRateSerializer(many=True, required=False)
-    snf_step_down_rates = SnfStepDownRateSerializer(many=True, required=False)
-
-    class Meta(BaseModelSerializer.Meta):
-        model = ProRataRateChart
-        fields = ['id', 'fat_step_up_rates', 'snf_step_down_rates', 'is_active', 'created_at', 'updated_at']
-
-    @transaction.atomic
-    def create(self, validated_data: Dict[str, Any]) -> ProRataRateChart:
-        fat_rates_data = validated_data.pop('fat_step_up_rates', [])
-        snf_rates_data = validated_data.pop('snf_step_down_rates', [])
-        
-        chart = super().create(validated_data)
-
-        request_user = self.context['request'].user
-
-        for rate_data in fat_rates_data:
-            FatStepUpRate.objects.create(chart=chart, author=request_user, **rate_data)
-        
-        for rate_data in snf_rates_data:
-            SnfStepDownRate.objects.create(chart=chart, author=request_user, **rate_data)
-            
-        return chart
-
-    @transaction.atomic
-    def update(self, instance: ProRataRateChart, validated_data: Dict[str, Any]) -> ProRataRateChart:
-        fat_rates_data = validated_data.pop('fat_step_up_rates', None)
-        snf_rates_data = validated_data.pop('snf_step_down_rates', None)
-
-        instance = super().update(instance, validated_data)
-
-        # Handle Fat Step Up Rates
-        if fat_rates_data is not None:
-            # Get existing IDs
-            existing_ids = [item['id'] for item in fat_rates_data if 'id' in item]
-            # Delete rates not in the new list
-            instance.fat_step_up_rates.exclude(id__in=existing_ids).delete()
-            
-            request_user = self.context['request'].user
-
-            for rate_data in fat_rates_data:
-                rate_id = rate_data.get('id')
-                if rate_id:
-                    rate_obj = instance.fat_step_up_rates.filter(id=rate_id).first()
-                    if rate_obj:
-                        rate_obj.step = rate_data.get('step', rate_obj.step)
-                        rate_obj.rate = rate_data.get('rate', rate_obj.rate)
-                        rate_obj.save()
-                else:
-                    FatStepUpRate.objects.create(chart=instance, author=request_user, **rate_data)
-
-        # Handle SNF Step Down Rates
-        if snf_rates_data is not None:
-            # Get existing IDs
-            existing_ids = [item['id'] for item in snf_rates_data if 'id' in item]
-            # Delete rates not in the new list
-            instance.snf_step_down_rates.exclude(id__in=existing_ids).delete()
-            
-            for rate_data in snf_rates_data:
-                rate_id = rate_data.get('id')
-                if rate_id:
-                    rate_obj = instance.snf_step_down_rates.filter(id=rate_id).first()
-                    if rate_obj:
-                        rate_obj.step = rate_data.get('step', rate_obj.step)
-                        rate_obj.rate = rate_data.get('rate', rate_obj.rate)
-                        rate_obj.save()
-                else:
-                    SnfStepDownRate.objects.create(chart=instance, author=request_user, **rate_data)
-
-        return instance 
 
 class RawCollectionListSerializer(BaseModelSerializer):
     customer_id: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(source='customer.customer_id', read_only=True, required=False)

@@ -13,30 +13,6 @@ import dj_database_url
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-def filter_sensitive_data(event):
-    """Redact common sensitive fields from Sentry events before sending."""
-    sensitive_keys = {"password", "secret", "token", "authorization", "api_key"}
-
-    def scrub(value):
-        if isinstance(value, dict):
-            return {
-                k: ("[Filtered]" if any(sk in k.lower() for sk in sensitive_keys) else scrub(v))
-                for k, v in value.items()
-            }
-        if isinstance(value, list):
-            return [scrub(item) for item in value]
-        return value
-
-    if "request" in event:
-        request = event["request"]
-        if "headers" in request:
-            request["headers"] = scrub(request["headers"])
-        if "data" in request:
-            request["data"] = scrub(request["data"])
-    if "extra" in event:
-        event["extra"] = scrub(event["extra"])
-    return event
-
 # Environment settings
 ENVIRONMENT = config('ENVIRONMENT', default='development')
 IS_DEVELOPMENT = ENVIRONMENT == 'development'
@@ -46,22 +22,22 @@ IS_PRODUCTION = ENVIRONMENT == 'production'
 TIME_ZONE = config('TIME_ZONE', default='Asia/Kolkata')
 USE_TZ = True
 
- # Sentry Configuration with Performance Monitoring (disabled)
- # SENTRY_DSN = config('SENTRY_DSN', default=None)
- # if SENTRY_DSN:
- #     sentry_sdk.init(
- #         dsn=SENTRY_DSN,
- #         integrations=[
- #             DjangoIntegration(),
- #             RedisIntegration(),
- #             CeleryIntegration(),
- #         ],
- #         traces_sample_rate=0.1,
- #         profiles_sample_rate=0.1,
- #         environment=ENVIRONMENT,
- #         send_default_pii=True,
- #         before_send=lambda event, hint: filter_sensitive_data(event),
- #     )
+# Sentry Configuration with Performance Monitoring
+SENTRY_DSN = config('SENTRY_DSN', default=None)
+if SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        integrations=[
+            DjangoIntegration(),
+            RedisIntegration(),
+            CeleryIntegration(),
+        ],
+        traces_sample_rate=0.1,
+        profiles_sample_rate=0.1,
+        environment=ENVIRONMENT,
+        send_default_pii=True,
+        before_send=lambda event, hint: filter_sensitive_data(event),
+    )
 
 # Prometheus Metrics
 PROMETHEUS_METRICS = {
@@ -105,6 +81,7 @@ INSTALLED_APPS = [
     'user',
     'collector',
     'wallet',
+    'admin_management',
 ]
 
 MIDDLEWARE = [
@@ -232,48 +209,79 @@ CELERY_TASK_RETRY_POLICY = {
     'interval_max': 1.0,
 }
 
-# Multi-layer Cache Configuration
-CACHES = {
-    'default': {
-        'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': REDIS_URL,
-        'OPTIONS': {
-            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-            'COMPRESSOR': 'django_redis.compressors.zlib.ZlibCompressor',
-        }
-    },
-    'local': {
-        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-        'LOCATION': 'unique-snowflake',
-        'OPTIONS': {
-            'MAX_ENTRIES': 1000
+# Multi-layer Cache Configuration with fallback
+try:
+    import redis
+    redis_conn = redis.from_url(REDIS_URL, socket_connect_timeout=2, socket_timeout=2)
+    redis_conn.ping()
+    CACHES = {
+        'default': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': REDIS_URL,
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+                'COMPRESSOR': 'django_redis.compressors.zlib.ZlibCompressor',
+            }
+        },
+        'local': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'unique-snowflake',
+            'OPTIONS': {
+                'MAX_ENTRIES': 1000
+            }
         }
     }
-}
+except Exception:
+    # Fallback to local memory cache if Redis is unavailable
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'unique-snowflake',
+            'OPTIONS': {
+                'MAX_ENTRIES': 10000
+            }
+        },
+        'local': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'unique-snowflake-local',
+            'OPTIONS': {
+                'MAX_ENTRIES': 1000
+            }
+        }
+    }
 
 # Cache Configuration for Different Types of Data
 CACHE_MIDDLEWARE_SECONDS = 300  # 5 minutes
 CACHE_MIDDLEWARE_KEY_PREFIX = 'milk_saas'
 
-# Cacheops Configuration
-CACHEOPS_REDIS = REDIS_URL
-CACHEOPS_DEFAULTS = {
-    'timeout': 60*60  # 1 hour
-}
-CACHEOPS = {
-    'auth.*': {'ops': 'all', 'timeout': 60*60},
-    'user.*': {'ops': ('fetch', 'get'), 'timeout': 60*15},
-    'wallet.*': {
-        'ops': 'all',
-        'timeout': 60*5,  # 5 minutes
-        'cache_on_save': True
-    },
-    'collector.*': {
-        'ops': ('fetch', 'get'),
-        'timeout': 60*30,  # 30 minutes
-        'cache_on_save': True
+# Cacheops Configuration with fallback
+try:
+    import redis
+    redis_conn = redis.from_url(REDIS_URL, socket_connect_timeout=2, socket_timeout=2)
+    redis_conn.ping()
+    CACHEOPS_REDIS = REDIS_URL
+    CACHEOPS_DEFAULTS = {
+        'timeout': 60*60  # 1 hour
     }
-}
+    CACHEOPS = {
+        'auth.*': {'ops': 'all', 'timeout': 60*60},
+        'user.*': {'ops': ('fetch', 'get'), 'timeout': 60*15},
+        'wallet.*': {
+            'ops': 'all',
+            'timeout': 60*5,  # 5 minutes
+            'cache_on_save': True
+        },
+        'collector.*': {
+            'ops': ('fetch', 'get'),
+            'timeout': 60*30,  # 30 minutes
+            'cache_on_save': True
+        }
+    }
+except Exception as e:
+    # Fallback: disable cacheops if Redis is unavailable
+    CACHEOPS = {}
+    CACHEOPS_DEFAULTS = {}
+    CACHEOPS_REDIS = None
 
 # Cache Invalidation Settings
 CACHE_MACHINE_USE_REDIS = True
@@ -333,8 +341,8 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.UserRateThrottle'
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'anon': config('THROTTLE_RATE_ANON'),
-        'user': config('THROTTLE_RATE_USER')
+        'anon': config('THROTTLE_RATE_ANON', default='100/hour'),
+        'user': config('THROTTLE_RATE_USER', default='1000/hour')
     },
     'DEFAULT_RENDERER_CLASSES': (
         'rest_framework.renderers.JSONRenderer',
@@ -404,6 +412,11 @@ LOGGING = {
             'propagate': True,
         },
         'wallet': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        'admin': {
             'handlers': ['console'],
             'level': 'INFO',
             'propagate': True,

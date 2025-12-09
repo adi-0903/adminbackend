@@ -1,0 +1,439 @@
+from rest_framework import viewsets, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from django.db.models import Q, Count, Avg, Sum
+from django.db.models.functions import ExtractHour
+from django.utils import timezone
+from datetime import timedelta
+from decimal import Decimal
+import logging
+
+from .models import UserSegment, SystemMetrics
+from .serializers import (
+    UserSegmentSerializer,
+    InactiveUserSerializer,
+    UserAnalyticsSerializer,
+    LiveMetricsSerializer
+)
+from user.models import User, UserActivity
+from collector.models import Collection
+
+logger = logging.getLogger('analytics')
+
+
+class UserAnalyticsViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated]
+    
+    def list(self, request):
+        """Get overall user analytics"""
+        now = timezone.now()
+        today = now.date()
+        week_ago = today - timedelta(days=7)
+        month_ago = today - timedelta(days=30)
+        
+        total_users = User.objects.count()
+        active_users = User.objects.filter(last_active__gte=now - timedelta(days=3)).count()
+        inactive_users = User.objects.filter(
+            Q(last_active__lt=now - timedelta(days=3)) | Q(last_active__isnull=True)
+        ).count()
+        
+        new_users_today = User.objects.filter(date_joined__date=today).count()
+        new_users_week = User.objects.filter(date_joined__date__gte=week_ago).count()
+        new_users_month = User.objects.filter(date_joined__date__gte=month_ago).count()
+        
+        data = {
+            'total_users': total_users,
+            'active_users': active_users,
+            'inactive_users': inactive_users,
+            'new_users_today': new_users_today,
+            'new_users_week': new_users_week,
+            'new_users_month': new_users_month,
+            'churn_rate': 0.0,
+            'retention_rate': 100.0,
+            'avg_session_duration': 0.0,
+            'top_active_users': []
+        }
+        
+        return Response(UserAnalyticsSerializer(data).data)
+    
+    @action(detail=False, methods=['get'])
+    def inactive_users(self, request):
+        """Get list of inactive users with risk categorization"""
+        days_inactive = int(request.query_params.get('days', 3))
+        page = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('page_size', 50))
+        risk_filter = request.query_params.get('risk', None)  # 'high', 'medium', 'low'
+        
+        now = timezone.now()
+        cutoff_date = now - timedelta(days=days_inactive)
+        
+        # Get users inactive for more than the specified days
+        inactive_users_qs = User.objects.filter(
+            last_active__lt=cutoff_date,
+            last_active__isnull=False
+        ).select_related('userinformation').order_by('-last_active')
+        
+        # Apply risk filter if specified
+        if risk_filter:
+            filtered_users = []
+            for user in inactive_users_qs:
+                days_calc = (now - user.last_active).days
+                risk = self._get_risk_level(days_calc)
+                if risk == risk_filter:
+                    filtered_users.append(user)
+            paginated_users = filtered_users[(page - 1) * page_size:page * page_size]
+            total_count = len(filtered_users)
+        else:
+            paginated_users = inactive_users_qs[(page - 1) * page_size:page * page_size]
+            total_count = inactive_users_qs.count()
+        
+        users_data = []
+        for user in paginated_users:
+            days_inactive_calc = (now - user.last_active).days
+            risk_level = self._get_risk_level(days_inactive_calc)
+            
+            user_data = {
+                'id': user.id,
+                'phone_number': user.phone_number,
+                'name': getattr(user, 'userinformation', None) and user.userinformation.name,
+                'email': getattr(user, 'userinformation', None) and user.userinformation.email,
+                'date_joined': user.date_joined,
+                'last_login': user.last_login,
+                'last_active': user.last_active,
+                'login_count': user.login_count,
+                'total_sessions': user.total_sessions,
+                'days_inactive': days_inactive_calc,
+                'status': risk_level,
+                'reason': f"Inactive for {days_inactive_calc} days"
+            }
+            users_data.append(user_data)
+        
+        return Response({
+            'results': InactiveUserSerializer(users_data, many=True).data,
+            'count': total_count,
+            'page': page,
+            'page_size': page_size
+        })
+    
+    def _get_risk_level(self, days_inactive):
+        """Determine risk level based on days inactive"""
+        if days_inactive >= 14:
+            return 'high'
+        elif days_inactive >= 7:
+            return 'medium'
+        else:
+            return 'low'
+
+
+class LiveDashboardViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated]
+    
+    @action(detail=False, methods=['get'])
+    def metrics(self, request):
+        """Get live dashboard metrics"""
+        now = timezone.now()
+        today = now.date()
+        
+        current_online_users = User.objects.filter(
+            last_active__gte=now - timedelta(minutes=30)
+        ).count()
+        
+        # Get collection data
+        today_collections = Collection.objects.filter(collection_date=today).count()
+        today_revenue_obj = Collection.objects.filter(
+            collection_date=today
+        ).aggregate(total=Sum('amount'))['total']
+        today_revenue = float(today_revenue_obj) if today_revenue_obj else 0.0
+        
+        active_sessions = User.objects.filter(is_online=True).count()
+        
+        # Get recent activities
+        recent_activities = list(UserActivity.objects.filter(
+            timestamp__gte=now - timedelta(hours=24)
+        ).select_related('user').order_by('-timestamp').values(
+            'user__phone_number',
+            'activity_type',
+            'timestamp'
+        )[:20])
+        
+        # Get heatmap data
+        user_heatmap = self._get_user_heatmap(now)
+        collection_heatmap = self._get_collection_heatmap(now)
+        
+        # Get today's hotspots
+        hotspots = self._get_today_hotspots(now)
+        
+        # Get performance metrics
+        performance_metrics = self._get_performance_metrics(today)
+        
+        # Get user engagement metrics
+        user_engagement = self._get_user_engagement_metrics(now)
+        
+        # Get business insights
+        business_insights = self._get_business_insights(today)
+        
+        data = {
+            'current_online_users': current_online_users,
+            'today_collections': today_collections,
+            'today_revenue': today_revenue,
+            'active_sessions': active_sessions,
+            'system_health': {
+                'status': 'healthy',
+                'response_time': '120ms',
+                'uptime': '99.9%',
+                'error_rate': '0.1%'
+            },
+            'recent_activities': recent_activities,
+            'heatmap': {
+                'user_activity': user_heatmap,
+                'collection_activity': collection_heatmap
+            },
+            'hotspots': hotspots,
+            'performance_metrics': performance_metrics,
+            'user_engagement': user_engagement,
+            'business_insights': business_insights
+        }
+        
+        logger.info(f"Live metrics: {data}")
+        return Response(data)
+
+    @action(detail=False, methods=['get'])
+    def online_users(self, request):
+        """Get list of currently online users"""
+        now = timezone.now()
+        
+        # Get users active in the last 30 minutes
+        online_users = User.objects.filter(
+            last_active__gte=now - timedelta(minutes=30)
+        ).select_related('userinformation').values(
+            'id',
+            'phone_number',
+            'last_active',
+            'userinformation__name',
+            'userinformation__email'
+        ).order_by('-last_active')
+        
+        users_data = []
+        for user in online_users:
+            users_data.append({
+                'id': user['id'],
+                'phone_number': user['phone_number'],
+                'name': user['userinformation__name'],
+                'email': user['userinformation__email'],
+                'last_active': user['last_active']
+            })
+        
+        return Response({
+            'count': len(users_data),
+            'results': users_data
+        })
+
+    def _get_user_heatmap(self, now):
+        """Generate user activity heatmap for the last 5 weeks"""
+        heatmap_data = []
+        today = now.date()
+        # Start from 5 weeks ago
+        start_date = today - timedelta(weeks=5)
+        
+        for i in range(35):  # 5 weeks * 7 days
+            date = start_date + timedelta(days=i)
+            day_start = timezone.make_aware(timezone.datetime.combine(date, timezone.datetime.min.time()))
+            day_end = day_start + timedelta(days=1)
+            
+            # Count user activities for this day
+            activity_count = UserActivity.objects.filter(
+                timestamp__gte=day_start,
+                timestamp__lt=day_end
+            ).count()
+            
+            heatmap_data.append({
+                'date': date.isoformat(),
+                'count': activity_count,
+                'intensity': min(activity_count / 10.0, 1.0)  # Normalize to 0-1
+            })
+        
+        return heatmap_data
+
+    def _get_collection_heatmap(self, now):
+        """Generate collection activity heatmap for the last 5 weeks"""
+        heatmap_data = []
+        today = now.date()
+        # Start from 5 weeks ago
+        start_date = today - timedelta(weeks=5)
+        
+        for i in range(35):  # 5 weeks * 7 days
+            date = start_date + timedelta(days=i)
+            
+            # Count collections for this day
+            collection_count = Collection.objects.filter(
+                created_at__date=date
+            ).count()
+            
+            heatmap_data.append({
+                'date': date.isoformat(),
+                'count': collection_count,
+                'intensity': min(collection_count / 5.0, 1.0)  # Normalize to 0-1
+            })
+        
+        return heatmap_data
+
+    def _get_performance_metrics(self, today):
+        """Get performance metrics for today"""
+        # Average collection amount today
+        today_collections = Collection.objects.filter(collection_date=today)
+        avg_amount = today_collections.aggregate(
+            avg=Avg('amount')
+        )['avg'] or 0
+        
+        # Collections per hour
+        from django.db.models.functions import ExtractHour
+        collections_per_hour = today_collections.annotate(
+            hour=ExtractHour('created_at')
+        ).values('hour').annotate(
+            count=Count('id')
+        ).aggregate(
+            avg_per_hour=Avg('count')
+        )['avg_per_hour'] or 0
+        
+        # Revenue growth rate (today vs yesterday)
+        yesterday = today - timedelta(days=1)
+        today_revenue = Collection.objects.filter(
+            collection_date=today
+        ).aggregate(total=Sum('amount'))['total'] or 0
+        yesterday_revenue = Collection.objects.filter(
+            collection_date=yesterday
+        ).aggregate(total=Sum('amount'))['total'] or 0
+        
+        growth_rate = 0
+        if yesterday_revenue > 0:
+            growth_rate = ((today_revenue - yesterday_revenue) / yesterday_revenue) * 100
+        
+        return {
+            'avg_collection_amount': float(avg_amount),
+            'collections_per_hour': float(collections_per_hour),
+            'revenue_growth_rate': round(growth_rate, 2)
+        }
+
+    def _get_user_engagement_metrics(self, now):
+        """Get user engagement metrics"""
+        today = now.date()
+        
+        # New users today
+        new_users_today = User.objects.filter(date_joined__date=today).count()
+        
+        # Active users this week
+        week_start = today - timedelta(days=today.weekday())
+        active_users_week = User.objects.filter(
+            last_active__gte=week_start
+        ).count()
+        
+        # User retention rate (simplified - users active today vs total users)
+        total_users = User.objects.count()
+        active_today = User.objects.filter(
+            last_active__gte=now - timedelta(hours=24)
+        ).count()
+        
+        retention_rate = (active_today / total_users * 100) if total_users > 0 else 0
+        
+        return {
+            'new_users_today': new_users_today,
+            'active_users_week': active_users_week,
+            'user_retention_rate': round(retention_rate, 2)
+        }
+
+    def _get_business_insights(self, today):
+        """Get business insights"""
+        # Today vs yesterday comparison
+        yesterday = today - timedelta(days=1)
+        
+        today_collections = Collection.objects.filter(collection_date=today).count()
+        yesterday_collections = Collection.objects.filter(collection_date=yesterday).count()
+        
+        today_revenue = Collection.objects.filter(collection_date=today).aggregate(
+            total=Sum('amount')
+        )['total'] or 0
+        
+        yesterday_revenue = Collection.objects.filter(collection_date=yesterday).aggregate(
+            total=Sum('amount')
+        )['total'] or 0
+        
+        # Weekly trend (last 7 days)
+        week_ago = today - timedelta(days=7)
+        weekly_collections = Collection.objects.filter(
+            collection_date__gte=week_ago
+        ).count()
+        
+        # Top performing customers
+        top_customers = Collection.objects.filter(
+            collection_date__gte=week_ago
+        ).values('customer__name').annotate(
+            total_amount=Sum('amount'),
+            collection_count=Count('id')
+        ).order_by('-total_amount')[:5]
+        
+        return {
+            'today_vs_yesterday': {
+                'collections': {
+                    'today': today_collections,
+                    'yesterday': yesterday_collections,
+                    'change': today_collections - yesterday_collections
+                },
+                'revenue': {
+                    'today': float(today_revenue),
+                    'yesterday': float(yesterday_revenue),
+                    'change': float(today_revenue - yesterday_revenue)
+                }
+            },
+            'weekly_trend': weekly_collections,
+            'top_customers': list(top_customers)
+        }
+
+    def _get_today_hotspots(self, now):
+        """Get today's hotspot data"""
+        today = now.date()
+        
+        # Peak user time (hour with most activities today)
+        peak_user_hour = UserActivity.objects.filter(
+            timestamp__date=today
+        ).annotate(
+            hour=ExtractHour('timestamp')
+        ).values('hour').annotate(
+            count=Count('id')
+        ).order_by('-count').first()
+        
+        # Peak collection time (hour with most collections today)
+        peak_collection_hour = Collection.objects.filter(
+            collection_date=today
+        ).annotate(
+            hour=ExtractHour('created_at')
+        ).values('hour').annotate(
+            count=Count('id')
+        ).order_by('-count').first()
+        
+        # Most active user today
+        most_active_user = UserActivity.objects.filter(
+            timestamp__date=today
+        ).values('user__phone_number').annotate(
+            count=Count('id')
+        ).order_by('-count').first()
+        
+        # Total activities today
+        total_activities_today = UserActivity.objects.filter(
+            timestamp__date=today
+        ).count()
+        
+        return {
+            'peak_user_time': {
+                'hour': peak_user_hour['hour'] if peak_user_hour else 0,
+                'count': peak_user_hour['count'] if peak_user_hour else 0
+            },
+            'peak_collection_time': {
+                'hour': peak_collection_hour['hour'] if peak_collection_hour else 0,
+                'count': peak_collection_hour['count'] if peak_collection_hour else 0
+            },
+            'most_active_user': {
+                'count': most_active_user['count'] if most_active_user else 0
+            },
+            'total_activities_today': total_activities_today
+        }

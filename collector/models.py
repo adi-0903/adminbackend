@@ -162,6 +162,15 @@ class Collection(BaseModel):
         return False
 
     def save(self, *args: Any, **kwargs: Any) -> None:
+        # Convert liters to kg if measured is 'liters' and kg is not set or is 0
+        if self.measured == 'liters' and (not self.kg or self.kg == 0):
+            # Milk density is approximately 1.03 kg/liter
+            # This conversion ensures kg values are always populated
+            self.kg = self.liters * Decimal('1.03')
+        elif self.measured == 'kg' and (not self.liters or self.liters == 0):
+            # Convert kg to liters if needed (inverse conversion)
+            self.liters = self.kg / Decimal('1.03')
+
         # Check for duplicates before saving
         if self.is_duplicate():
             from django.core.exceptions import ValidationError

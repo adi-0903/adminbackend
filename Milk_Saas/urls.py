@@ -55,6 +55,7 @@ urlpatterns = [
     path('api/collector/', include('collector.urls')),
     path('api/', include('wallet.urls')),
     path('api/admin/', include('admin_management.urls')),
+    path('api/analytics/', include('analytics.urls')),
     path('api/health/', health_check, name='health_check'),
 ]
 

@@ -2,9 +2,10 @@ import logging
 import time
 import uuid
 from django.utils.deprecation import MiddlewareMixin
-from django.http import HttpResponse, HttpResponseTooManyRequests
+from django.http import HttpResponse
 from redis import Redis
 from django.conf import settings
+from django.utils import timezone
 
 logger = logging.getLogger('django')
 
@@ -102,6 +103,26 @@ class RedisRateLimiter:
         _, _, count, _ = pipeline.execute()
         
         if count > self.rate_limit:
-            return HttpResponseTooManyRequests()
+            return HttpResponse('Too Many Requests', status=429)
             
         return self.get_response(request)
+
+
+class UpdateUserActivityMiddleware:
+    """Middleware to update user activity on each request"""
+    
+    def __init__(self, get_response):
+        self.get_response = get_response
+    
+    def __call__(self, request):
+        response = self.get_response(request)
+        
+        # Update user activity if user is authenticated
+        if hasattr(request, 'user') and request.user.is_authenticated:
+            from user.models import User
+            User.objects.filter(pk=request.user.pk).update(
+                last_active=timezone.now(),
+                is_online=True
+            )
+        
+        return response

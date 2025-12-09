@@ -2,7 +2,8 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from .models import Wallet
+from .models import Wallet, WalletTransaction
+from user.models import UserActivity
 
 User = get_user_model()
 
@@ -20,3 +21,23 @@ def create_wallet_for_user(user_instance):
     except Exception as e:
         # Log the error but don't fail the user creation
         print(f"Error creating wallet for user {user_instance.id}: {str(e)}")
+
+
+@receiver(post_save, sender=WalletTransaction)
+def log_wallet_transaction_activity(sender, instance, created, **kwargs):
+    """Log wallet transactions as user activities"""
+    if created:
+        try:
+            activity_type = 'wallet_credit' if instance.transaction_type == 'CREDIT' else 'wallet_debit'
+            UserActivity.objects.create(
+                user=instance.wallet.user,
+                activity_type=activity_type,
+                metadata={
+                    'amount': float(instance.amount),
+                    'transaction_type': instance.transaction_type,
+                    'description': instance.description,
+                    'status': instance.status
+                }
+            )
+        except Exception as e:
+            pass

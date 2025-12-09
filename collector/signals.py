@@ -5,10 +5,26 @@ from decimal import Decimal
 from django.conf import settings
 from .models import Collection
 from wallet.models import Wallet, WalletTransaction
+from user.models import UserActivity
 
 @receiver(post_save, sender=Collection)
 def handle_collection_wallet_deduction(sender, instance, created, **kwargs):
     if created:  # Only for new collections
+        # Log collection creation activity
+        try:
+            UserActivity.objects.create(
+                user=instance.author,
+                activity_type='collection_create',
+                metadata={
+                    'customer': instance.customer.name,
+                    'amount': float(instance.amount),
+                    'kg': float(instance.kg),
+                    'collection_date': str(instance.collection_date)
+                }
+            )
+        except Exception as e:
+            pass
+        
         # Get collection fee settings
         collection_fee = getattr(settings, 'COLLECTION_FEE', {})
         
@@ -43,6 +59,20 @@ def handle_collection_wallet_deduction(sender, instance, created, **kwargs):
                     status='SUCCESS',
                     description=description
                 )
+                
+                # Log wallet debit activity
+                try:
+                    UserActivity.objects.create(
+                        user=instance.author,
+                        activity_type='wallet_debit',
+                        metadata={
+                            'amount': float(deduction_amount),
+                            'reason': 'Collection fee',
+                            'collection_id': instance.id
+                        }
+                    )
+                except Exception as e:
+                    pass
         except Wallet.DoesNotExist:
             # Handle case where user doesn't have a wallet
-            pass 
+            pass

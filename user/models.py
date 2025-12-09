@@ -87,6 +87,14 @@ class User(AbstractBaseUser, PermissionsMixin):
         null=True,
         db_index=True
     )
+    
+    # User activity tracking fields
+    last_login = models.DateTimeField(null=True, blank=True, db_index=True)
+    last_active = models.DateTimeField(null=True, blank=True, db_index=True)
+    login_count = models.PositiveIntegerField(default=0, db_index=True)
+    total_sessions = models.PositiveIntegerField(default=0, db_index=True)
+    is_online = models.BooleanField(default=False, db_index=True)
+    session_start_time = models.DateTimeField(null=True, blank=True)
 
     objects = CustomUserManager()
     all_objects = models.Manager()
@@ -99,6 +107,10 @@ class User(AbstractBaseUser, PermissionsMixin):
             models.Index(fields=['phone_number']),
             models.Index(fields=['referral_code']),
             models.Index(fields=['is_active']),
+            models.Index(fields=['last_login']),
+            models.Index(fields=['last_active']),
+            models.Index(fields=['is_online']),
+            models.Index(fields=['login_count']),
         ]
         verbose_name = 'user'
         verbose_name_plural = 'users'
@@ -266,3 +278,63 @@ class UserInformation(models.Model):
 
     def hard_delete(self, *args, **kwargs):
         super().delete(*args, **kwargs)
+
+class UserActivity(models.Model):
+    """Model to track detailed user activities for analytics"""
+    ACTIVITY_TYPES = [
+        ('login', 'Login'),
+        ('logout', 'Logout'),
+        ('collection_create', 'Create Collection'),
+        ('collection_update', 'Update Collection'),
+        ('collection_delete', 'Delete Collection'),
+        ('wallet_credit', 'Wallet Credit'),
+        ('wallet_debit', 'Wallet Debit'),
+        ('payment', 'Payment'),
+        ('profile_update', 'Profile Update'),
+        ('customer_create', 'Customer Create'),
+        ('customer_update', 'Customer Update'),
+        ('report_generate', 'Generate Report'),
+        ('app_open', 'App Open'),
+        ('app_close', 'App Close'),
+    ]
+    
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='activities', db_index=True)
+    activity_type = models.CharField(max_length=50, choices=ACTIVITY_TYPES, db_index=True)
+    timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(null=True, blank=True)
+    device_type = models.CharField(max_length=50, null=True, blank=True)  # mobile, tablet, desktop
+    platform = models.CharField(max_length=50, null=True, blank=True)  # ios, android, web
+    metadata = models.JSONField(null=True, blank=True)  # Additional activity-specific data
+    session_id = models.CharField(max_length=100, null=True, blank=True, db_index=True)
+    
+    class Meta:
+        indexes = [
+            models.Index(fields=['user', 'timestamp']),
+            models.Index(fields=['activity_type', 'timestamp']),
+            models.Index(fields=['user', 'activity_type']),
+            models.Index(fields=['timestamp']),
+            models.Index(fields=['session_id']),
+        ]
+        ordering = ['-timestamp']
+        verbose_name = 'User Activity'
+        verbose_name_plural = 'User Activities'
+    
+    def __str__(self):
+        return f"{self.user.phone_number} - {self.activity_type} - {self.timestamp}"
+    
+    @classmethod
+    def get_user_activities(cls, user, days=30):
+        """Get user activities for the last N days"""
+        from django.utils import timezone
+        start_date = timezone.now() - timezone.timedelta(days=days)
+        return cls.objects.filter(user=user, timestamp__gte=start_date)
+    
+    @classmethod
+    def get_activity_summary(cls, user, days=30):
+        """Get activity summary for a user"""
+        activities = cls.get_user_activities(user, days)
+        summary = {}
+        for activity_type, _ in cls.ACTIVITY_TYPES:
+            summary[activity_type] = activities.filter(activity_type=activity_type).count()
+        return summary

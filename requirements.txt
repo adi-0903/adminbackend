@@ -114,7 +114,7 @@ python-pptx==1.0.2
 python-semantic-release==7.33.2
 pytz==2025.1
 PyYAML==6.0.2
-ragflow-sdk==0.13.0
+ragflow-sdk==0.18.0
 razorpay==1.4.2
 readme_renderer==44.0
 realtime==1.0.6
@@ -157,3 +157,4 @@ XlsxWriter==3.2.3
 yarl==1.18.3
 zipp==3.21.0
 zopfli==0.2.3.post1
+vercel

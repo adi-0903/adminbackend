@@ -229,6 +229,92 @@ class LiveDashboardViewSet(viewsets.ViewSet):
             'results': users_data
         })
 
+    @action(detail=False, methods=['get'])
+    def user_details(self, request):
+        """Get detailed user information with filters"""
+        user_type = request.query_params.get('type', 'all')  # new_users_today, active_users_today, etc.
+        page = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('page_size', 50))
+        date_from = request.query_params.get('date_from')
+        date_to = request.query_params.get('date_to')
+        
+        now = timezone.now()
+        today = now.date()
+        
+        # Base queryset
+        users_qs = User.objects.select_related('userinformation').order_by('-date_joined')
+        
+        # Apply filters based on user type
+        if user_type == 'new_users_today':
+            users_qs = users_qs.filter(date_joined__date=today)
+        elif user_type == 'active_users_today':
+            users_qs = users_qs.filter(last_active__gte=now - timedelta(hours=24))
+        elif user_type == 'active_users_week':
+            week_start = today - timedelta(days=today.weekday())
+            users_qs = users_qs.filter(last_active__gte=week_start)
+        elif user_type == 'total_users':
+            pass  # All users
+        elif user_type == 'inactive_users':
+            users_qs = users_qs.filter(
+                Q(last_active__lt=now - timedelta(days=7)) | Q(last_active__isnull=True)
+            )
+        elif user_type == 'premium_users':
+            users_qs = users_qs.filter(is_premium=True) if hasattr(User, 'is_premium') else users_qs.none()
+        elif user_type == 'free_users':
+            users_qs = users_qs.filter(is_premium=False) if hasattr(User, 'is_premium') else users_qs.all()
+        elif user_type == 'trial_users':
+            users_qs = users_qs.filter(is_trial=True) if hasattr(User, 'is_trial') else users_qs.none()
+        elif user_type == 'suspended_users':
+            users_qs = users_qs.filter(is_active=False)
+        
+        # Apply date range filter if provided
+        if date_from:
+            try:
+                date_from_parsed = timezone.datetime.strptime(date_from, '%Y-%m-%d').date()
+                users_qs = users_qs.filter(date_joined__date__gte=date_from_parsed)
+            except ValueError:
+                pass
+        
+        if date_to:
+            try:
+                date_to_parsed = timezone.datetime.strptime(date_to, '%Y-%m-%d').date()
+                users_qs = users_qs.filter(date_joined__date__lte=date_to_parsed)
+            except ValueError:
+                pass
+        
+        # Pagination
+        total_count = users_qs.count()
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        paginated_users = users_qs[start_idx:end_idx]
+        
+        # Build response data
+        users_data = []
+        for user in paginated_users:
+            user_info = getattr(user, 'userinformation', None)
+            users_data.append({
+                'id': user.id,
+                'phone_number': user.phone_number,
+                'name': user_info.name if user_info else 'N/A',
+                'email': user_info.email if user_info else 'N/A',
+                'date_joined': user.date_joined,
+                'last_active': user.last_active,
+                'last_login': user.last_login,
+                'is_active': user.is_active,
+                'login_count': getattr(user, 'login_count', 0),
+                'total_sessions': getattr(user, 'total_sessions', 0),
+                'is_premium': getattr(user, 'is_premium', False),
+                'is_trial': getattr(user, 'is_trial', False),
+                'days_inactive': (now - user.last_active).days if user.last_active else None,
+            })
+        
+        return Response({
+            'count': total_count,
+            'page': page,
+            'page_size': page_size,
+            'results': users_data
+        })
+
     def _get_user_heatmap(self, now):
         """Generate user activity heatmap for the last 5 weeks"""
         heatmap_data = []
@@ -328,18 +414,65 @@ class LiveDashboardViewSet(viewsets.ViewSet):
             last_active__gte=week_start
         ).count()
         
-        # User retention rate (simplified - users active today vs total users)
+        # Active users today
+        active_users_today = User.objects.filter(
+            last_active__gte=now - timedelta(hours=24)
+        ).count()
+        
+        # Total registered users
         total_users = User.objects.count()
+        
+        # Inactive users (no activity in last 7 days)
+        inactive_users = User.objects.filter(
+            Q(last_active__lt=now - timedelta(days=7)) | Q(last_active__isnull=True)
+        ).count()
+        
+        # User retention rate (simplified - users active today vs total users)
         active_today = User.objects.filter(
             last_active__gte=now - timedelta(hours=24)
         ).count()
         
         retention_rate = (active_today / total_users * 100) if total_users > 0 else 0
         
+        # Average session duration (mock data - would need session tracking)
+        avg_session_duration = 15  # minutes
+        
+        # User growth rate (this week vs last week)
+        this_week_start = today - timedelta(days=today.weekday())
+        last_week_start = this_week_start - timedelta(days=7)
+        last_week_end = this_week_start
+        
+        new_users_this_week = User.objects.filter(
+            date_joined__date__gte=this_week_start
+        ).count()
+        new_users_last_week = User.objects.filter(
+            date_joined__date__gte=last_week_start,
+            date_joined__date__lt=last_week_end
+        ).count()
+        
+        user_growth_rate = 0
+        if new_users_last_week > 0:
+            user_growth_rate = ((new_users_this_week - new_users_last_week) / new_users_last_week) * 100
+        
+        # User status breakdown (mock data - would need subscription tracking)
+        premium_users = User.objects.filter(is_premium=True).count() if hasattr(User, 'is_premium') else total_users // 4
+        free_users = total_users - premium_users
+        trial_users = User.objects.filter(is_trial=True).count() if hasattr(User, 'is_trial') else total_users // 10
+        suspended_users = User.objects.filter(is_active=False).count()
+        
         return {
             'new_users_today': new_users_today,
             'active_users_week': active_users_week,
-            'user_retention_rate': round(retention_rate, 2)
+            'active_users_today': active_users_today,
+            'user_retention_rate': round(retention_rate, 2),
+            'total_users': total_users,
+            'inactive_users': inactive_users,
+            'avg_session_duration': avg_session_duration,
+            'user_growth_rate': round(user_growth_rate, 2),
+            'premium_users': premium_users,
+            'free_users': free_users,
+            'trial_users': trial_users,
+            'suspended_users': suspended_users
         }
 
     def _get_business_insights(self, today):

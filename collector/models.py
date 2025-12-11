@@ -171,6 +171,12 @@ class Collection(BaseModel):
             # Convert kg to liters if needed (inverse conversion)
             self.liters = self.kg / Decimal('1.03')
 
+        # Calculate amount automatically: amount = kg × milk_rate
+        if self.kg and self.milk_rate:
+            self.amount = self.kg * self.milk_rate
+        else:
+            self.amount = Decimal('0')
+
         # Check for duplicates before saving
         if self.is_duplicate():
             from django.core.exceptions import ValidationError

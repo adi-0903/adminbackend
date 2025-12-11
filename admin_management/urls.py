@@ -15,6 +15,7 @@ from .views import (
     AdminReferralViewSet,
     AdminRawCollectionViewSet,
     AdminDairyInformationViewSet,
+    AdminProfileView,
 )
 
 router = DefaultRouter()
@@ -34,5 +35,6 @@ router.register(r'dairy-information', AdminDairyInformationViewSet, basename='ad
 urlpatterns = [
     path('dashboard/', AdminDashboardView.as_view(), name='admin-dashboard'),
     path('dashboard/enhanced/', AdminEnhancedDashboardView.as_view(), name='admin-enhanced-dashboard'),
+    path('profile/', AdminProfileView.as_view(), name='admin-profile'),
     path('', include(router.urls)),
 ]

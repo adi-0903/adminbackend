@@ -16,13 +16,17 @@ logger = logging.getLogger('admin')
 def get_dashboard_stats() -> Dict[str, Any]:
     """Get comprehensive dashboard statistics"""
     
-    # User statistics
-    total_users = User.objects.all().count()
-    active_users = User.objects.filter(is_active=True).count()
-    inactive_users = User.objects.filter(is_active=False).count()
+    # User statistics (excluding superusers)
+    total_users = User.objects.filter(is_superuser=False).count()
+    active_users = User.objects.filter(is_active=True, is_superuser=False).count()
+    inactive_users = User.objects.filter(is_active=False, is_superuser=False).count()
     
-    # Wallet statistics
-    wallets = Wallet.objects.filter(is_deleted=False)
+    # Wallet statistics (excluding admin/superuser wallets)
+    wallets = Wallet.objects.filter(
+        is_deleted=False,
+        user__is_superuser=False,
+        user__is_staff=False
+    )
     total_wallet_balance = wallets.aggregate(
         total=Sum('balance')
     )['total'] or Decimal('0.00')
@@ -36,11 +40,34 @@ def get_dashboard_stats() -> Dict[str, Any]:
     # Collection statistics
     total_collections = Collection.objects.filter(is_active=True).count()
     
+    # Collections this month
+    current_month_start = timezone.now().date().replace(day=1)
+    collections_this_month = Collection.objects.filter(
+        is_active=True,
+        collection_date__gte=current_month_start
+    ).count()
+    
+    # New users this month
+    new_users_this_month = User.objects.filter(
+        date_joined__date__gte=current_month_start,
+        is_superuser=False
+    ).count()
+    
     # Customer statistics
     total_customers = Customer.objects.filter(is_active=True).count()
     
     # Referral statistics
     referral_count = ReferralUsage.objects.filter(is_rewarded=True).count()
+    
+    # Collection fee earnings (sum of all collection fee deductions)
+    collection_fee_transactions = WalletTransaction.objects.filter(
+        is_deleted=False,
+        transaction_type='DEBIT',
+        description__icontains='Collection fee'
+    )
+    total_collection_fee_earnings = collection_fee_transactions.aggregate(
+        total=Sum('amount')
+    )['total'] or Decimal('0.00')
     
     return {
         'total_users': total_users,
@@ -49,10 +76,13 @@ def get_dashboard_stats() -> Dict[str, Any]:
         'total_wallet_balance': total_wallet_balance,
         'total_transactions': total_transactions,
         'total_collections': total_collections,
+        'new_collections_this_month': collections_this_month,
+        'new_users_this_month': new_users_this_month,
         'total_customers': total_customers,
         'pending_transactions': pending_transactions,
         'failed_transactions': failed_transactions,
         'referral_count': referral_count,
+        'total_amount_earned': total_collection_fee_earnings,
     }
 
 
@@ -61,13 +91,13 @@ def get_enhanced_dashboard_stats(days: int = 30) -> Dict[str, Any]:
     
     start_date = timezone.now() - timedelta(days=days)
     
-    # Enhanced User Statistics
-    total_users = User.objects.all().count()
-    active_users = User.objects.filter(is_active=True).count()
-    inactive_users = User.objects.filter(is_active=False).count()
+    # Enhanced User Statistics (excluding superusers)
+    total_users = User.objects.filter(is_superuser=False).count()
+    active_users = User.objects.filter(is_active=True, is_superuser=False).count()
+    inactive_users = User.objects.filter(is_active=False, is_superuser=False).count()
     
-    # User details for dashboard
-    users_data = User.objects.all().values(
+    # User details for dashboard (excluding superusers)
+    users_data = User.objects.filter(is_superuser=False).values(
         'id', 'phone_number', 'is_active', 'date_joined', 'is_staff'
     ).order_by('-date_joined')
     
@@ -112,6 +142,16 @@ def get_enhanced_dashboard_stats(days: int = 30) -> Dict[str, Any]:
     
     # Recent collections
     recent_collections = collections.select_related('customer', 'author').order_by('-collection_date', '-created_at')[:10]
+    
+    # Wallet statistics (excluding admin/superuser wallets)
+    wallets = Wallet.objects.filter(
+        is_deleted=False,
+        user__is_superuser=False,
+        user__is_staff=False
+    )
+    total_wallet_balance = wallets.aggregate(
+        total=Sum('balance')
+    )['total'] or Decimal('0.00')
     
     # Summary statistics
     total_collection_amount = collections.aggregate(
@@ -193,23 +233,35 @@ def get_user_statistics(days: int = 30) -> Dict[str, Any]:
     
     new_users = User.objects.filter(
         date_joined__gte=start_date,
-        is_active=True
+        is_active=True,
+        is_superuser=False
     ).count()
     
-    inactive_users = User.objects.filter(is_active=False).count()
+    # Users who joined today specifically
+    today = timezone.now().date()
+    users_joined_today = User.objects.filter(
+        date_joined__date=today,
+        is_active=True,
+        is_superuser=False
+    ).count()
+    
+    inactive_users = User.objects.filter(is_active=False, is_superuser=False).count()
     
     users_with_wallet = User.objects.filter(
         is_active=True,
-        wallet__isnull=False
+        wallet__isnull=False,
+        is_superuser=False
     ).distinct().count()
     
     users_with_collections = User.objects.filter(
         is_active=True,
-        collection__isnull=False
+        collection__isnull=False,
+        is_superuser=False
     ).distinct().count()
     
     return {
         'new_users_last_n_days': new_users,
+        'users_joined_today': users_joined_today,
         'inactive_users': inactive_users,
         'users_with_wallet': users_with_wallet,
         'users_with_collections': users_with_collections,

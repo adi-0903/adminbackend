@@ -131,10 +131,13 @@ class AdminDashboardStatsSerializer(serializers.Serializer):
     total_wallet_balance = serializers.DecimalField(max_digits=15, decimal_places=2)
     total_transactions = serializers.IntegerField()
     total_collections = serializers.IntegerField()
+    new_collections_this_month = serializers.IntegerField()
+    new_users_this_month = serializers.IntegerField()
     total_customers = serializers.IntegerField()
     pending_transactions = serializers.IntegerField()
     failed_transactions = serializers.IntegerField()
     referral_count = serializers.IntegerField()
+    total_amount_earned = serializers.DecimalField(max_digits=15, decimal_places=2)
 
 
 class AdminLogSerializer(serializers.ModelSerializer):
@@ -234,3 +237,39 @@ class AdminDairyInformationSerializer(serializers.ModelSerializer):
             'is_active', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'author_phone', 'created_at', 'updated_at']
+
+
+class AdminProfileSerializer(serializers.ModelSerializer):
+    """Serializer for admin profile management"""
+    user_info = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = User
+        fields = [
+            'id', 'phone_number', 'is_active', 'date_joined', 'user_info'
+        ]
+        read_only_fields = ['id', 'phone_number', 'is_active', 'date_joined']
+    
+    def get_user_info(self, obj):
+        try:
+            user_info = UserInformation.objects.get(user=obj)
+            return {
+                'name': user_info.name,
+                'email': user_info.email,
+            }
+        except UserInformation.DoesNotExist:
+            return {'name': '', 'email': ''}
+    
+    def update(self, instance, validated_data):
+        try:
+            user_info = UserInformation.objects.get(user=instance)
+            user_info.name = validated_data.get('name', user_info.name)
+            user_info.email = validated_data.get('email', user_info.email)
+            user_info.save()
+        except UserInformation.DoesNotExist:
+            UserInformation.objects.create(
+                user=instance,
+                name=validated_data.get('name', ''),
+                email=validated_data.get('email', '')
+            )
+        return instance

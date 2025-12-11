@@ -131,26 +131,42 @@ class LiveDashboardViewSet(viewsets.ViewSet):
     
     @action(detail=False, methods=['get'])
     def metrics(self, request):
-        """Get live dashboard metrics"""
+        """Get live dashboard metrics - only for normal users"""
         now = timezone.now()
         today = now.date()
         
+        # Filter for normal users only (exclude superusers and staff)
+        normal_users_filter = Q(is_superuser=False) & Q(is_staff=False)
+        
         current_online_users = User.objects.filter(
-            last_active__gte=now - timedelta(minutes=30)
+            last_active__gte=now - timedelta(minutes=30),
+            **{'is_superuser': False, 'is_staff': False}
         ).count()
         
-        # Get collection data
-        today_collections = Collection.objects.filter(collection_date=today).count()
+        # Get collection data from normal users only
+        today_collections = Collection.objects.filter(
+            collection_date=today,
+            author__is_superuser=False,
+            author__is_staff=False
+        ).count()
         today_revenue_obj = Collection.objects.filter(
-            collection_date=today
+            collection_date=today,
+            author__is_superuser=False,
+            author__is_staff=False
         ).aggregate(total=Sum('amount'))['total']
         today_revenue = float(today_revenue_obj) if today_revenue_obj else 0.0
         
-        active_sessions = User.objects.filter(is_online=True).count()
+        active_sessions = User.objects.filter(
+            is_online=True,
+            is_superuser=False,
+            is_staff=False
+        ).count()
         
-        # Get recent activities
+        # Get recent activities from normal users only
         recent_activities = list(UserActivity.objects.filter(
-            timestamp__gte=now - timedelta(hours=24)
+            timestamp__gte=now - timedelta(hours=24),
+            user__is_superuser=False,
+            user__is_staff=False
         ).select_related('user').order_by('-timestamp').values(
             'user__phone_number',
             'activity_type',
@@ -210,6 +226,8 @@ class LiveDashboardViewSet(viewsets.ViewSet):
             'id',
             'phone_number',
             'last_active',
+            'is_superuser',
+            'is_staff',
             'userinformation__name',
             'userinformation__email'
         ).order_by('-last_active')
@@ -221,7 +239,9 @@ class LiveDashboardViewSet(viewsets.ViewSet):
                 'phone_number': user['phone_number'],
                 'name': user['userinformation__name'],
                 'email': user['userinformation__email'],
-                'last_active': user['last_active']
+                'last_active': user['last_active'],
+                'is_superuser': user['is_superuser'],
+                'is_staff': user['is_staff']
             })
         
         return Response({
@@ -316,7 +336,7 @@ class LiveDashboardViewSet(viewsets.ViewSet):
         })
 
     def _get_user_heatmap(self, now):
-        """Generate user activity heatmap for the last 5 weeks"""
+        """Generate user activity heatmap for the last 5 weeks - normal users only"""
         heatmap_data = []
         today = now.date()
         # Start from 5 weeks ago
@@ -327,10 +347,12 @@ class LiveDashboardViewSet(viewsets.ViewSet):
             day_start = timezone.make_aware(timezone.datetime.combine(date, timezone.datetime.min.time()))
             day_end = day_start + timedelta(days=1)
             
-            # Count user activities for this day
+            # Count user activities for this day - normal users only
             activity_count = UserActivity.objects.filter(
                 timestamp__gte=day_start,
-                timestamp__lt=day_end
+                timestamp__lt=day_end,
+                user__is_superuser=False,
+                user__is_staff=False
             ).count()
             
             heatmap_data.append({
@@ -342,7 +364,7 @@ class LiveDashboardViewSet(viewsets.ViewSet):
         return heatmap_data
 
     def _get_collection_heatmap(self, now):
-        """Generate collection activity heatmap for the last 5 weeks"""
+        """Generate collection activity heatmap for the last 5 weeks - normal users only"""
         heatmap_data = []
         today = now.date()
         # Start from 5 weeks ago
@@ -351,9 +373,11 @@ class LiveDashboardViewSet(viewsets.ViewSet):
         for i in range(35):  # 5 weeks * 7 days
             date = start_date + timedelta(days=i)
             
-            # Count collections for this day
+            # Count collections for this day - normal users only
             collection_count = Collection.objects.filter(
-                created_at__date=date
+                created_at__date=date,
+                author__is_superuser=False,
+                author__is_staff=False
             ).count()
             
             heatmap_data.append({
@@ -365,14 +389,18 @@ class LiveDashboardViewSet(viewsets.ViewSet):
         return heatmap_data
 
     def _get_performance_metrics(self, today):
-        """Get performance metrics for today"""
-        # Average collection amount today
-        today_collections = Collection.objects.filter(collection_date=today)
+        """Get performance metrics for today - normal users only"""
+        # Average collection amount today - normal users only
+        today_collections = Collection.objects.filter(
+            collection_date=today,
+            author__is_superuser=False,
+            author__is_staff=False
+        )
         avg_amount = today_collections.aggregate(
             avg=Avg('amount')
         )['avg'] or 0
         
-        # Collections per hour
+        # Collections per hour - normal users only
         from django.db.models.functions import ExtractHour
         collections_per_hour = today_collections.annotate(
             hour=ExtractHour('created_at')
@@ -382,13 +410,17 @@ class LiveDashboardViewSet(viewsets.ViewSet):
             avg_per_hour=Avg('count')
         )['avg_per_hour'] or 0
         
-        # Revenue growth rate (today vs yesterday)
+        # Revenue growth rate (today vs yesterday) - normal users only
         yesterday = today - timedelta(days=1)
         today_revenue = Collection.objects.filter(
-            collection_date=today
+            collection_date=today,
+            author__is_superuser=False,
+            author__is_staff=False
         ).aggregate(total=Sum('amount'))['total'] or 0
         yesterday_revenue = Collection.objects.filter(
-            collection_date=yesterday
+            collection_date=yesterday,
+            author__is_superuser=False,
+            author__is_staff=False
         ).aggregate(total=Sum('amount'))['total'] or 0
         
         growth_rate = 0
@@ -402,34 +434,49 @@ class LiveDashboardViewSet(viewsets.ViewSet):
         }
 
     def _get_user_engagement_metrics(self, now):
-        """Get user engagement metrics"""
+        """Get user engagement metrics - normal users only"""
         today = now.date()
         
-        # New users today
-        new_users_today = User.objects.filter(date_joined__date=today).count()
+        # New users today - normal users only
+        new_users_today = User.objects.filter(
+            date_joined__date=today,
+            is_superuser=False,
+            is_staff=False
+        ).count()
         
-        # Active users this week
+        # Active users this week - normal users only
         week_start = today - timedelta(days=today.weekday())
         active_users_week = User.objects.filter(
-            last_active__gte=week_start
+            last_active__gte=week_start,
+            is_superuser=False,
+            is_staff=False
         ).count()
         
-        # Active users today
+        # Active users today - normal users only
         active_users_today = User.objects.filter(
-            last_active__gte=now - timedelta(hours=24)
+            last_active__gte=now - timedelta(hours=24),
+            is_superuser=False,
+            is_staff=False
         ).count()
         
-        # Total registered users
-        total_users = User.objects.count()
+        # Total registered users - normal users only
+        total_users = User.objects.filter(
+            is_superuser=False,
+            is_staff=False
+        ).count()
         
-        # Inactive users (no activity in last 7 days)
+        # Inactive users (no activity in last 7 days) - normal users only
         inactive_users = User.objects.filter(
-            Q(last_active__lt=now - timedelta(days=7)) | Q(last_active__isnull=True)
+            Q(last_active__lt=now - timedelta(days=7)) | Q(last_active__isnull=True),
+            is_superuser=False,
+            is_staff=False
         ).count()
         
-        # User retention rate (simplified - users active today vs total users)
+        # User retention rate (simplified - users active today vs total users) - normal users only
         active_today = User.objects.filter(
-            last_active__gte=now - timedelta(hours=24)
+            last_active__gte=now - timedelta(hours=24),
+            is_superuser=False,
+            is_staff=False
         ).count()
         
         retention_rate = (active_today / total_users * 100) if total_users > 0 else 0
@@ -437,17 +484,21 @@ class LiveDashboardViewSet(viewsets.ViewSet):
         # Average session duration (mock data - would need session tracking)
         avg_session_duration = 15  # minutes
         
-        # User growth rate (this week vs last week)
+        # User growth rate (this week vs last week) - normal users only
         this_week_start = today - timedelta(days=today.weekday())
         last_week_start = this_week_start - timedelta(days=7)
         last_week_end = this_week_start
         
         new_users_this_week = User.objects.filter(
-            date_joined__date__gte=this_week_start
+            date_joined__date__gte=this_week_start,
+            is_superuser=False,
+            is_staff=False
         ).count()
         new_users_last_week = User.objects.filter(
             date_joined__date__gte=last_week_start,
-            date_joined__date__lt=last_week_end
+            date_joined__date__lt=last_week_end,
+            is_superuser=False,
+            is_staff=False
         ).count()
         
         user_growth_rate = 0
@@ -476,30 +527,46 @@ class LiveDashboardViewSet(viewsets.ViewSet):
         }
 
     def _get_business_insights(self, today):
-        """Get business insights"""
-        # Today vs yesterday comparison
+        """Get business insights - normal users only"""
+        # Today vs yesterday comparison - normal users only
         yesterday = today - timedelta(days=1)
         
-        today_collections = Collection.objects.filter(collection_date=today).count()
-        yesterday_collections = Collection.objects.filter(collection_date=yesterday).count()
-        
-        today_revenue = Collection.objects.filter(collection_date=today).aggregate(
-            total=Sum('amount')
-        )['total'] or 0
-        
-        yesterday_revenue = Collection.objects.filter(collection_date=yesterday).aggregate(
-            total=Sum('amount')
-        )['total'] or 0
-        
-        # Weekly trend (last 7 days)
-        week_ago = today - timedelta(days=7)
-        weekly_collections = Collection.objects.filter(
-            collection_date__gte=week_ago
+        today_collections = Collection.objects.filter(
+            collection_date=today,
+            author__is_superuser=False,
+            author__is_staff=False
+        ).count()
+        yesterday_collections = Collection.objects.filter(
+            collection_date=yesterday,
+            author__is_superuser=False,
+            author__is_staff=False
         ).count()
         
-        # Top performing customers
+        today_revenue = Collection.objects.filter(
+            collection_date=today,
+            author__is_superuser=False,
+            author__is_staff=False
+        ).aggregate(total=Sum('amount'))['total'] or 0
+        
+        yesterday_revenue = Collection.objects.filter(
+            collection_date=yesterday,
+            author__is_superuser=False,
+            author__is_staff=False
+        ).aggregate(total=Sum('amount'))['total'] or 0
+        
+        # Weekly trend (last 7 days) - normal users only
+        week_ago = today - timedelta(days=7)
+        weekly_collections = Collection.objects.filter(
+            collection_date__gte=week_ago,
+            author__is_superuser=False,
+            author__is_staff=False
+        ).count()
+        
+        # Top performing customers - normal users only
         top_customers = Collection.objects.filter(
-            collection_date__gte=week_ago
+            collection_date__gte=week_ago,
+            author__is_superuser=False,
+            author__is_staff=False
         ).values('customer__name').annotate(
             total_amount=Sum('amount'),
             collection_count=Count('id')
@@ -523,37 +590,45 @@ class LiveDashboardViewSet(viewsets.ViewSet):
         }
 
     def _get_today_hotspots(self, now):
-        """Get today's hotspot data"""
+        """Get today's hotspot data - normal users only"""
         today = now.date()
         
-        # Peak user time (hour with most activities today)
+        # Peak user time (hour with most activities today) - normal users only
         peak_user_hour = UserActivity.objects.filter(
-            timestamp__date=today
+            timestamp__date=today,
+            user__is_superuser=False,
+            user__is_staff=False
         ).annotate(
             hour=ExtractHour('timestamp')
         ).values('hour').annotate(
             count=Count('id')
         ).order_by('-count').first()
         
-        # Peak collection time (hour with most collections today)
+        # Peak collection time (hour with most collections today) - normal users only
         peak_collection_hour = Collection.objects.filter(
-            collection_date=today
+            collection_date=today,
+            author__is_superuser=False,
+            author__is_staff=False
         ).annotate(
             hour=ExtractHour('created_at')
         ).values('hour').annotate(
             count=Count('id')
         ).order_by('-count').first()
         
-        # Most active user today
+        # Most active user today - normal users only
         most_active_user = UserActivity.objects.filter(
-            timestamp__date=today
+            timestamp__date=today,
+            user__is_superuser=False,
+            user__is_staff=False
         ).values('user__phone_number').annotate(
             count=Count('id')
         ).order_by('-count').first()
         
-        # Total activities today
+        # Total activities today - normal users only
         total_activities_today = UserActivity.objects.filter(
-            timestamp__date=today
+            timestamp__date=today,
+            user__is_superuser=False,
+            user__is_staff=False
         ).count()
         
         return {

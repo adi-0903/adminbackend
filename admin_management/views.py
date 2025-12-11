@@ -22,7 +22,7 @@ from .serializers import (
     AdminLogSerializer, AdminNotificationSerializer, AdminReportSerializer,
     BulkWalletAdjustmentSerializer, UserStatusUpdateSerializer,
     AdminReferralReportSerializer, AdminRawCollectionSerializer,
-    AdminDairyInformationSerializer
+    AdminDairyInformationSerializer, AdminProfileSerializer
 )
 from .permissions import IsAdmin
 from .utils import (
@@ -86,13 +86,16 @@ class AdminUserViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet for managing users in admin panel"""
     permission_classes = []  # Remove authentication to get it working
     serializer_class = AdminUserSerializer
-    queryset = User.objects.select_related('wallet', 'userinformation').all().order_by('-date_joined')
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['is_active', 'is_staff']
     search_fields = ['phone_number', 'referral_code']
     ordering_fields = ['date_joined', 'phone_number']
     ordering = ['-date_joined']
     pagination_class = AdminPagination
+    
+    def get_queryset(self):
+        """Exclude superusers from the user list"""
+        return User.objects.filter(is_superuser=False).select_related('wallet', 'userinformation').order_by('-date_joined')
     
     @action(detail=False, methods=['get'])
     def statistics(self, request):
@@ -514,5 +517,53 @@ class AdminDairyInformationViewSet(viewsets.ReadOnlyModelViewSet):
             logger.error(f"Error fetching dairy information statistics: {str(e)}")
             return Response(
                 {'error': 'Failed to fetch dairy information statistics'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class AdminProfileView(generics.GenericAPIView):
+    """View for admin profile management"""
+    permission_classes = []
+    serializer_class = AdminProfileSerializer
+    
+    def get(self, request):
+        """Get current admin profile"""
+        try:
+            user = request.user
+            if not user.is_authenticated:
+                return Response(
+                    {'error': 'User not authenticated'},
+                    status=status.HTTP_401_UNAUTHORIZED
+                )
+            
+            serializer = self.get_serializer(user)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Error fetching admin profile: {str(e)}")
+            return Response(
+                {'error': 'Failed to fetch admin profile'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def put(self, request):
+        """Update admin profile"""
+        try:
+            user = request.user
+            if not user.is_authenticated:
+                return Response(
+                    {'error': 'User not authenticated'},
+                    status=status.HTTP_401_UNAUTHORIZED
+                )
+            
+            serializer = self.get_serializer(user, data=request.data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data, status=status.HTTP_200_OK)
+            else:
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Error updating admin profile: {str(e)}")
+            return Response(
+                {'error': 'Failed to update admin profile'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )

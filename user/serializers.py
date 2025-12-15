@@ -9,6 +9,12 @@ from django.conf import settings
 
 User = get_user_model()
 
+# Import tracking serializer for device info
+try:
+    from tracking.serializers import DeviceInfoSerializer
+except ImportError:
+    DeviceInfoSerializer = None
+
 class UserLoginSerializer(serializers.Serializer):
     phone_number = serializers.CharField(max_length=10)
 
@@ -109,3 +115,60 @@ class UserInformationSerializer(serializers.ModelSerializer):
             
         except Exception as e:
             raise serializers.ValidationError(f"Failed to update user information: {str(e)}")
+
+
+class UserDetailSerializer(serializers.ModelSerializer):
+    """
+    Detailed user serializer with device info for admin dashboard
+    """
+    user_info = serializers.SerializerMethodField()
+    device_info = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = User
+        fields = [
+            'id',
+            'phone_number',
+            'referral_code',
+            'is_active',
+            'date_joined',
+            'last_login',
+            'last_active',
+            'login_count',
+            'total_sessions',
+            'user_info',
+            'device_info',
+        ]
+    
+    def get_user_info(self, obj):
+        """Get user information"""
+        try:
+            user_info = obj.user_info
+            return {
+                'name': user_info.name if hasattr(user_info, 'name') else 'Unknown',
+                'email': user_info.email if hasattr(user_info, 'email') else '',
+            }
+        except:
+            return {
+                'name': 'Unknown',
+                'email': '',
+            }
+    
+    def get_device_info(self, obj):
+        """Get device info from tracking app"""
+        try:
+            if hasattr(obj, 'device_info'):
+                if DeviceInfoSerializer:
+                    return DeviceInfoSerializer(obj.device_info).data
+                else:
+                    return {
+                        'device_type': obj.device_info.device_type,
+                        'platform': obj.device_info.platform,
+                        'app_version': obj.device_info.app_version,
+                        'os_version': obj.device_info.os_version,
+                        'device_model': obj.device_info.device_model,
+                        'last_device_used': obj.device_info.last_device_used,
+                        'last_seen': obj.device_info.last_seen,
+                    }
+        except:
+            return None

@@ -83,6 +83,7 @@ INSTALLED_APPS = [
     'wallet',
     'admin_management',
     'analytics',
+    'tracking',
 ]
 
 MIDDLEWARE = [
@@ -98,6 +99,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'Milk_Saas.middleware.UpdateUserActivityMiddleware',
+    'tracking.middleware.DeviceTrackingMiddleware',
 ]
 
 # Debug Toolbar Configuration

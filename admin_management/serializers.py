@@ -8,6 +8,15 @@ from decimal import Decimal
 from typing import Any, Dict
 from django.db.models import Count
 
+# Import tracking serializer for device info
+try:
+    from tracking.serializers import DeviceInfoSerializer
+except ImportError:
+    DeviceInfoSerializer = None
+
+# Import DairyInformation for supplier info
+from collector.models import DairyInformation
+
 User = get_user_model()
 
 
@@ -16,15 +25,23 @@ class AdminUserSerializer(serializers.ModelSerializer):
     user_info = serializers.SerializerMethodField()
     wallet = serializers.SerializerMethodField()
     total_collections = serializers.SerializerMethodField()
+    total_spent = serializers.SerializerMethodField()
     referral_count = serializers.SerializerMethodField()
+    device_info = serializers.SerializerMethodField()
+    supplier_info = serializers.SerializerMethodField()
+    collections_this_month = serializers.SerializerMethodField()
+    revenue_this_month = serializers.SerializerMethodField()
+    premium_purchases = serializers.SerializerMethodField()
     
     class Meta:
         model = User
         fields = [
             'id', 'phone_number', 'referral_code', 'is_active', 'is_staff',
-            'date_joined', 'user_info', 'wallet', 'total_collections', 'referral_count'
+            'date_joined', 'last_active', 'last_login', 'login_count', 'total_sessions',
+            'user_info', 'wallet', 'total_collections', 'total_spent', 'referral_count', 'device_info', 'supplier_info',
+            'collections_this_month', 'revenue_this_month', 'premium_purchases'
         ]
-        read_only_fields = ['id', 'phone_number', 'referral_code', 'date_joined']
+        read_only_fields = ['id', 'phone_number', 'referral_code', 'date_joined', 'last_active', 'last_login', 'login_count', 'total_sessions']
     
     def get_user_info(self, obj):
         try:
@@ -51,8 +68,11 @@ class AdminUserSerializer(serializers.ModelSerializer):
     
     def get_total_collections(self, obj):
         try:
-            return Collection.objects.filter(author=obj, is_active=True).count()
-        except Exception:
+            # Count all collections for this user (both active and inactive)
+            count = Collection.objects.filter(author=obj).count()
+            return count
+        except Exception as e:
+            print(f"Error counting collections for user {obj.id}: {e}")
             return 0
     
     def get_referral_count(self, obj):
@@ -60,6 +80,118 @@ class AdminUserSerializer(serializers.ModelSerializer):
             return ReferralUsage.objects.filter(referrer=obj, is_rewarded=True).count()
         except Exception:
             return 0
+    
+    def get_total_spent(self, obj):
+        """Calculate total spent by user from collections"""
+        try:
+            from django.db.models import Sum
+            from decimal import Decimal
+            total = Collection.objects.filter(author=obj).aggregate(
+                total=Sum('amount')
+            )['total'] or Decimal('0')
+            return float(total)
+        except Exception:
+            return 0
+    
+    def get_device_info(self, obj):
+        """Get device info from tracking app"""
+        try:
+            if hasattr(obj, 'device_info'):
+                if DeviceInfoSerializer:
+                    return DeviceInfoSerializer(obj.device_info).data
+                else:
+                    return {
+                        'device_type': obj.device_info.device_type,
+                        'platform': obj.device_info.platform,
+                        'app_version': obj.device_info.app_version,
+                        'os_version': obj.device_info.os_version,
+                        'device_model': obj.device_info.device_model,
+                        'last_device_used': obj.device_info.last_device_used,
+                        'last_seen': obj.device_info.last_seen,
+                    }
+        except Exception:
+            return None
+    
+    def get_supplier_info(self, obj):
+        """Get supplier/dairy information"""
+        try:
+            dairy_info = DairyInformation.objects.filter(
+                author=obj,
+                is_active=True
+            ).order_by('-created_at').first()
+            
+            if dairy_info:
+                return {
+                    'dairy_name': dairy_info.dairy_name,
+                    'dairy_address': dairy_info.dairy_address,
+                    'rate_type': dairy_info.rate_type,
+                    'is_active': dairy_info.is_active,
+                    'created_at': dairy_info.created_at,
+                    'updated_at': dairy_info.updated_at,
+                }
+        except Exception:
+            pass
+        return None
+    
+    def get_collections_this_month(self, obj):
+        """Calculate collections for current month"""
+        try:
+            from django.utils import timezone
+            current_month_start = timezone.now().date().replace(day=1)
+            count = Collection.objects.filter(
+                author=obj,
+                is_active=True,
+                collection_date__gte=current_month_start
+            ).count()
+            return count
+        except Exception:
+            return 0
+    
+    def get_revenue_this_month(self, obj):
+        """Calculate revenue for current month"""
+        try:
+            from django.utils import timezone
+            from django.db.models import Sum
+            from decimal import Decimal
+            current_month_start = timezone.now().date().replace(day=1)
+            total = Collection.objects.filter(
+                author=obj,
+                is_active=True,
+                collection_date__gte=current_month_start
+            ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+            return float(total)
+        except Exception:
+            return 0
+    
+    def get_premium_purchases(self, obj):
+        """Fetch premium purchases from wallet transactions"""
+        try:
+            # Get wallet for this user
+            wallet = Wallet.objects.get(user=obj)
+            # Fetch premium-related transactions (DEBIT transactions with 'premium' in description)
+            premium_transactions = WalletTransaction.objects.filter(
+                wallet=wallet,
+                transaction_type='DEBIT',
+                description__icontains='premium',
+                status='SUCCESS'
+            ).order_by('-created_at')
+            
+            purchases = []
+            for transaction in premium_transactions:
+                purchases.append({
+                    'plan_name': 'Premium Plan',
+                    'amount': float(transaction.amount),
+                    'start_date': transaction.created_at.date(),
+                    'end_date': None,  # Would need a separate model to track end dates
+                    'status': 'active',
+                    'features': transaction.description
+                })
+            
+            return purchases
+        except Wallet.DoesNotExist:
+            return []
+        except Exception:
+            return []
 
 
 class AdminWalletSerializer(serializers.ModelSerializer):

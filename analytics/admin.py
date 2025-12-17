@@ -1,5 +1,6 @@
 from django.contrib import admin
 from .models import UserSegment, DailyMetrics, SystemMetrics, AnalyticsQuery
+from .crm_models import InactiveUserTask, TaskComment
 
 
 @admin.register(UserSegment)
@@ -32,3 +33,22 @@ class AnalyticsQueryAdmin(admin.ModelAdmin):
     list_filter = ('query_type', 'is_public', 'created_at')
     search_fields = ('name', 'description')
     readonly_fields = ('created_by', 'created_at', 'last_used')
+
+
+@admin.register(InactiveUserTask)
+class InactiveUserTaskAdmin(admin.ModelAdmin):
+    list_display = ('title', 'user', 'status', 'priority', 'assigned_to', 'created_at', 'due_date')
+    list_filter = ('status', 'priority', 'created_at', 'due_date')
+    search_fields = ('title', 'description', 'user__phone_number')
+    readonly_fields = ('created_at', 'updated_at', 'completed_at')
+    raw_id_fields = ('user', 'assigned_to', 'created_by')
+    date_hierarchy = 'created_at'
+
+
+@admin.register(TaskComment)
+class TaskCommentAdmin(admin.ModelAdmin):
+    list_display = ('task', 'author', 'created_at')
+    list_filter = ('created_at',)
+    search_fields = ('comment', 'task__title')
+    readonly_fields = ('created_at', 'updated_at')
+    raw_id_fields = ('task', 'author')

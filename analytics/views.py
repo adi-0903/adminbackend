@@ -68,10 +68,12 @@ class UserAnalyticsViewSet(viewsets.ViewSet):
         now = timezone.now()
         cutoff_date = now - timedelta(days=days_inactive)
         
-        # Get users inactive for more than the specified days
+        # Get users inactive for more than the specified days (exclude admin users)
         inactive_users_qs = User.objects.filter(
             last_active__lt=cutoff_date,
-            last_active__isnull=False
+            last_active__isnull=False,
+            is_superuser=False,
+            is_staff=False
         ).select_related('userinformation').order_by('-last_active')
         
         # Apply risk filter if specified
@@ -645,3 +647,4 @@ class LiveDashboardViewSet(viewsets.ViewSet):
             },
             'total_activities_today': total_activities_today
         }
+

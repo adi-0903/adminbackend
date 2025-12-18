@@ -21,8 +21,12 @@ class InactiveUserTaskSerializer(serializers.ModelSerializer):
     user_phone = serializers.CharField(source='user.phone_number', read_only=True)
     assigned_to_phone = serializers.CharField(source='assigned_to.phone_number', read_only=True, allow_null=True)
     created_by_phone = serializers.CharField(source='created_by.phone_number', read_only=True, allow_null=True)
-    comments = TaskCommentSerializer(many=True, read_only=True)
+    comments = serializers.SerializerMethodField()
     comments_count = serializers.SerializerMethodField()
+    
+    def get_comments(self, obj):
+        comments = obj.comments.all().order_by('-created_at')
+        return TaskCommentSerializer(comments, many=True).data
     
     class Meta:
         model = InactiveUserTask

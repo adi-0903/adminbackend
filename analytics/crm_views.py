@@ -22,6 +22,7 @@ User = get_user_model()
 class InactiveUserTaskViewSet(viewsets.ModelViewSet):
     """ViewSet for managing CRM tasks for inactive users"""
     permission_classes = [IsAuthenticated]
+    pagination_class = None
     
     def get_queryset(self):
         queryset = InactiveUserTask.objects.select_related(
